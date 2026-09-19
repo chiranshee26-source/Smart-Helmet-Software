@@ -1,7 +1,6 @@
 # IoT-Based Smart Anti-Drowsiness Helmet
 
 **Real-Time Drowsiness Detection and Progressive Rider Safety Alerts**
-Innovative Design Project (IDP) — VIT Vellore
 
 A conventional helmet only protects a rider *after* an impact. This project
 adds an active safety layer on top of it: a system that watches for
@@ -21,7 +20,6 @@ with no changes to the logic above it.
 
 ## Table of Contents
 
-- [Team](#team)
 - [Problem Statement](#problem-statement)
 - [The Solution](#the-solution)
 - [What's Working Right Now](#whats-working-right-now)
@@ -34,21 +32,6 @@ with no changes to the logic above it.
 - [Development Roadmap](#development-roadmap)
 - [Known Limitations](#known-limitations)
 - [Future Scope](#future-scope)
-
----
-
-## Team
-
-| Name | Registration No. |
-|---|---|
-| Chiranshee | 25BCE0527 |
-| Aksat Sharma | 25BCE0551 |
-| Sparsh Singh | 25BCE0508 |
-| Arham Jain | 25BCE0389 |
-| Kishley Dubey | 25BCE0976 |
-
-**Course:** Innovative Design Project (IDP)
-**Instructor:** Deepanramkumar P
 
 ---
 
