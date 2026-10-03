@@ -96,6 +96,27 @@ class EyeConfig:
     # (far enough down to clear typical sunglasses lenses).
     cheek_offset_eye_widths: float = 1.2
 
+    # --- No-blink check (see blink_monitor.py) ---
+    # Behind sunglasses the landmark model guesses an EAR that tends to stay
+    # flat. Real eyes blink every few seconds. If no blink (EAR dip) is seen
+    # for this long, the EAR is treated as unverified ("can't see the eyes").
+    # 30 s is deliberately generous; tune after testing with real riders.
+    enable_no_blink_check: bool = True
+    no_blink_seconds: float = 30.0
+    # A "blink" = EAR below this fraction of the rider's recent open-eye EAR
+    # (or below ear_closed_threshold).
+    blink_dip_ratio: float = 0.75
+    blink_baseline_tau_seconds: float = 3.0
+
+    # --- Camera exposure lock (experimental) ---
+    # Webcam auto-exposure brightens the image when sunglasses go on, which
+    # hides the darker lenses from the brightness-ratio check. When True,
+    # the camera's exposure is frozen at its settled value right after it
+    # opens. Many webcams/drivers ignore this request; the startup log says
+    # whether it appeared to work. After enabling, re-run
+    # calibrate_occlusion.py to see whether sunglasses now separate.
+    lock_camera_exposure: bool = False
+
 
 @dataclass
 class HeadConfig:
