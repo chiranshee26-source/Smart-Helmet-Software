@@ -100,7 +100,7 @@ def test_dark_tinted_lens_region_flagged():
     for cx in (0.40, 0.60):
         x0, x1 = int((cx - 0.06) * W), int((cx + 0.06) * W)
         y0, y1 = int(0.40 * H), int(0.50 * H)
-        frame[y0:y1, x0:x1] = _frame(mean=55, std=8, seed=1)[y0:y1, x0:x1]
+        frame[y0:y1, x0:x1] = _frame(mean=15, std=4, seed=1)[y0:y1, x0:x1]
     assert _looks_like_occluded_lens(frame, LEFT, RIGHT, W, H, CFG)
 
 
@@ -147,14 +147,14 @@ def test_bare_eyes_in_bright_room_not_flagged():
     assert _decide(_frame(mean=170, std=35)) == (False, None)
 
 
-def test_sunglasses_flagged_in_normal_light():
-    fires, reason = _decide(_paint_lenses(_frame(mean=106, std=29), mean=45))
+def test_opaque_dark_lens_flagged_in_normal_light():
+    fires, reason = _decide(_paint_lenses(_frame(mean=106, std=29), mean=15))
     assert fires and reason == REASON_LENS_DARK
 
 
-def test_sunglasses_flagged_in_dim_light():
+def test_opaque_dark_lens_flagged_in_dim_light():
     # Same lens in a dimmer room: absolute values all drop, ratio still low.
-    fires, reason = _decide(_paint_lenses(_frame(mean=60, std=18), mean=22))
+    fires, reason = _decide(_paint_lenses(_frame(mean=60, std=18), mean=8, std=3))
     assert fires and reason == REASON_LENS_DARK
 
 
@@ -173,6 +173,23 @@ def test_too_dark_to_see_reported_separately():
     assert fires and reason == REASON_TOO_DARK
 
 
+def test_calibrated_bare_eye_ratios_never_flagged():
+    # Real readings from calibrate_occlusion.py on 2026-10-04 (see
+    # config.py): bare eyes spanned eye/cheek 0.32-0.65 across normal light,
+    # eyes closed and dim light. None of these may be distrusted, or the
+    # alert locks on RED for a rider who is simply looking at the road.
+    from occlusion import OcclusionStats
+
+    readings = [  # (eye_mean, eye_std, cheek_mean)
+        (85.2, 28.0, 192.3), (0.32 * 192.3, 28.0, 192.3), (0.49 * 192.3, 28.0, 192.3),
+        (103.1, 32.8, 201.4),
+        (39.5, 8.8, 61.7), (0.62 * 61.7, 8.8, 61.7), (0.65 * 61.7, 8.8, 61.7),
+    ]
+    for eye, std, cheek in readings:
+        stats = OcclusionStats(eye_mean=eye, eye_std=std, ref_mean=cheek)
+        assert _occlusion_decision(stats, CFG) == (False, None), f"flagged ratio {stats.ratio:.2f}"
+
+
 def test_cheek_off_frame_falls_back_to_absolute_rule():
     # Eyes at the very bottom edge: cheek patch is off-frame, so the
     # decision falls back to the old absolute thresholds.
@@ -184,7 +201,7 @@ def test_cheek_off_frame_falls_back_to_absolute_rule():
 
 def test_one_eye_off_frame_uses_the_other():
     off = _eye_landmarks(1.5, 1.5)
-    frame = _paint_lenses(_frame(mean=106, std=29), mean=45)
+    frame = _paint_lenses(_frame(mean=106, std=29), mean=15)
     assert _looks_like_occluded_lens(frame, LEFT, off, W, H, CFG)
 
 

@@ -90,6 +90,7 @@ async def _sensor_loop():
         occlusion_reason = None
         brightness_ratio = None
         eye_patch_mean = None
+        seconds_since_blink = None
         face_found = False
         if _eye_enabled and _eye_tracker is not None:
             result = await asyncio.get_event_loop().run_in_executor(
@@ -103,6 +104,7 @@ async def _sensor_loop():
             occlusion_reason = result.occlusion_reason
             brightness_ratio = result.brightness_ratio
             eye_patch_mean = result.eye_patch_mean
+            seconds_since_blink = result.seconds_since_blink
             face_found = result.face_found
 
         imu_sample = imu.tick(now)
@@ -118,6 +120,7 @@ async def _sensor_loop():
             "occlusion_reason": occlusion_reason,
             "brightness_ratio": round(brightness_ratio, 3) if brightness_ratio is not None else None,
             "eye_patch_mean": round(eye_patch_mean, 1) if eye_patch_mean is not None else None,
+            "seconds_since_blink": round(seconds_since_blink, 1) if seconds_since_blink is not None else None,
             "perclos": round(state.perclos, 3),
             "eye_score": round(state.eye_score, 3),
             "head_pitch_deg": round(state.head_pitch_deg, 2) if state.head_pitch_deg is not None else None,
@@ -200,4 +203,5 @@ async def status():
         "camera_enabled": _eye_enabled,
         "tick_hz": cfg.tick_hz,
         "connected_clients": len(_clients),
+        "exposure_locked": getattr(_eye_tracker, "exposure_locked", None),
     }

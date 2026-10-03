@@ -9,12 +9,14 @@ const perclosValue = document.getElementById("perclos-value");
 const eyeScoreValue = document.getElementById("eye-score-value");
 const ratioValue = document.getElementById("ratio-value");
 const eyeLightValue = document.getElementById("eye-light-value");
+const blinkValue = document.getElementById("blink-value");
 
 const OCCLUSION_NOTES = {
   lens_dark: "(eyes much darker than cheeks — sunglasses suspected, eye reading distrusted)",
   lens_bright: "(eyes much brighter than cheeks — mirrored lens or glare, eye reading distrusted)",
   flat: "(eye area has no texture — possible lens, eye reading distrusted)",
   too_dark: "(too dark for the camera to see — eye reading distrusted)",
+  no_blink: "(no blink seen for a while — eyes may be hidden, e.g. sunglasses; eye reading distrusted)",
   absolute_fallback: "(possible sunglasses/lens occlusion — eye reading distrusted)",
 };
 
@@ -109,6 +111,7 @@ function connect() {
     eyeScoreValue.textContent = s.eye_score.toFixed(2);
     ratioValue.textContent = s.brightness_ratio != null ? s.brightness_ratio.toFixed(2) : "—";
     eyeLightValue.textContent = s.eye_patch_mean != null ? Math.round(s.eye_patch_mean) : "—";
+    blinkValue.textContent = s.seconds_since_blink != null ? Math.round(s.seconds_since_blink) + "s" : "—";
     earChart.push(s.ear);
 
     pitchValue.textContent = s.head_pitch_deg !== null ? s.head_pitch_deg.toFixed(1) + "°" : "—";

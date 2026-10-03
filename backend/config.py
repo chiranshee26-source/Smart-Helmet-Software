@@ -69,14 +69,24 @@ class EyeConfig:
     # Dim light darkens both, so the ratio holds; a tinted lens darkens only
     # the eyes, so the ratio drops. See occlusion.py.
     #
-    # PROVISIONAL DEFAULTS -- not yet calibrated on this camera. Run
-    # `python calibrate_occlusion.py` (it now includes a dim-light step) and
-    # paste the recommended values here.
-    # 0.65 derived from the 2026-09-19 readings: sunglasses eye patch 63.4 vs
-    # bare 106.1 (~0.60 of bare). If cheeks read about as bright as bare
-    # eyes, sunglasses sit near 0.60 and bare eyes near 1.0; if cheeks are
-    # brighter (~130), roughly 0.49 vs 0.82. 0.65 separates both cases.
-    occlusion_dark_ratio_threshold: float = 0.65    # eye/cheek below this = tinted lens
+    # Calibrated with calibrate_occlusion.py on 2026-10-04 (laptop webcam,
+    # night, room light + screen):
+    #   eyes open, normal light : ratio 0.44 (range 0.32-0.49), cheek 192
+    #   eyes closed             : ratio 0.51 (range 0.48-0.54)
+    #   eyes open, dim light    : ratio 0.64 (range 0.62-0.65), eye 40, cheek 62
+    #   sunglasses on           : ratio 0.83 (range 0.44-1.25), cheek 112
+    # Findings:
+    #   - Dim light: bare-eye brightness fell 85 -> 40 (the old fixed 80.1
+    #     threshold would have flagged it), ratio stayed in 0.44-0.64. The
+    #     ratio fixes the stuck-on-RED-in-dim-light bug.
+    #   - Sunglasses read HIGHER than bare eyes and overlap them (webcam
+    #     auto-exposure brightens the frame; the frames likely cover part of
+    #     the cheek patch). On this camera, these sunglasses CANNOT be
+    #     detected by brightness. Documented as a known limitation.
+    # So thresholds are set to never flag bare eyes (lowest bare 0.32,
+    # highest 0.65) with margin; they only catch extreme cases (opaque
+    # patch, strong glare).
+    occlusion_dark_ratio_threshold: float = 0.25    # eye/cheek below this = tinted lens
     occlusion_bright_ratio_threshold: float = 1.50  # eye/cheek above this = mirrored lens / glare
     occlusion_min_texture_cv: float = 0.05          # eye std/mean below this = featureless flat patch
     # Cheek brightness below this (0-255) = face too dark for the camera to
@@ -85,6 +95,27 @@ class EyeConfig:
     # Where the cheek patch sits: this many eye-widths below the eye centre
     # (far enough down to clear typical sunglasses lenses).
     cheek_offset_eye_widths: float = 1.2
+
+    # --- No-blink check (see blink_monitor.py) ---
+    # Behind sunglasses the landmark model guesses an EAR that tends to stay
+    # flat. Real eyes blink every few seconds. If no blink (EAR dip) is seen
+    # for this long, the EAR is treated as unverified ("can't see the eyes").
+    # 30 s is deliberately generous; tune after testing with real riders.
+    enable_no_blink_check: bool = True
+    no_blink_seconds: float = 30.0
+    # A "blink" = EAR below this fraction of the rider's recent open-eye EAR
+    # (or below ear_closed_threshold).
+    blink_dip_ratio: float = 0.75
+    blink_baseline_tau_seconds: float = 3.0
+
+    # --- Camera exposure lock (experimental) ---
+    # Webcam auto-exposure brightens the image when sunglasses go on, which
+    # hides the darker lenses from the brightness-ratio check. When True,
+    # the camera's exposure is frozen at its settled value right after it
+    # opens. Many webcams/drivers ignore this request; the startup log says
+    # whether it appeared to work. After enabling, re-run
+    # calibrate_occlusion.py to see whether sunglasses now separate.
+    lock_camera_exposure: bool = False
 
 
 @dataclass

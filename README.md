@@ -196,6 +196,29 @@ absolute thresholds remain only as a fallback when the cheek isn't in
 frame. `calibrate_occlusion.py` now includes a dim-light step to check
 that bare eyes in low light are *not* flagged.
 
+**What calibration showed (4 Oct, laptop webcam):** the ratio fixed the
+dim-light bug (bare-eye brightness fell from 85 to 40, while the ratio stayed
+within 0.44–0.64). But the tested sunglasses read *brighter* than bare eyes
+(ratio 0.83, range 0.44–1.25): the webcam's auto-exposure brightens the
+frame when the lenses go on. **On this camera these sunglasses cannot be
+detected by brightness**, so thresholds are set to never flag bare eyes, and
+the check only catches extreme cases (opaque patch, strong glare).
+
+**Two camera-independent backups were added for that gap:**
+- **No-blink check** (`blink_monitor.py`): behind sunglasses the landmark
+  model guesses an EAR that tends to stay flat, while real eyes blink every
+  few seconds. If no blink (a clear EAR dip) is seen for 30 s, the eye
+  reading is treated as unverified, like any other "can't see the eyes"
+  frame. A long eye closure counts as eye movement, so it is still handled
+  as eyes-closed by PERCLOS, not reclassified.
+- **Exposure lock (experimental, off by default)**: `lock_camera_exposure`
+  in `config.py` freezes the webcam's exposure after start-up, so lenses
+  should read dark again instead of being brightened by auto-exposure. Many
+  webcam drivers ignore the request; the startup log says whether it took
+  effect. Re-run `calibrate_occlusion.py` after enabling it.
+
+Reliable sunglasses handling is still listed under Future Scope.
+
 ### 3. False alarms on startup / brief blips
 **Problem:** Early on, before the 15-second rolling window fills up, a
 couple of dropped frames or a single long blink could look like a large
@@ -255,6 +278,9 @@ provisional until `calibrate_occlusion.py` is re-run (see edge case 2).
 - Occlusion heuristic does not flag the calibrated open- or closed-eye
   readings (a closed eye must not be mistaken for "can't see")
 - Off-frame landmarks don't crash or false-flag
+- Bare eyes in a dim room are not flagged (regression for the stuck-on-RED bug)
+- No-blink check: real blinking eyes never flagged; a flat EAR is flagged
+  after the timeout; a long eye closure does not trigger it
 
 Run them with:
 
@@ -276,6 +302,7 @@ smart-helmet-software/
     decision_engine.py       # fusion + GREEN/YELLOW/RED state machine (no hardware deps)
     eye_detection.py          # webcam -> EAR, dual mediapipe backend
     occlusion.py              # sunglasses/occlusion heuristic (numpy only, unit-tested)
+    blink_monitor.py          # no-blink check: flags a flat, never-blinking EAR (unit-tested)
     imu_simulator.py           # stand-in for the MPU6050
     main.py                     # FastAPI app: wires it together, serves the dashboard
     calibrate.py                # interactive EAR calibration against your own camera
@@ -285,6 +312,7 @@ smart-helmet-software/
   tests/
     test_decision_engine.py       # unit tests for the alert logic
     test_occlusion_heuristic.py    # unit tests for the sunglasses heuristic
+    test_blink_monitor.py          # unit tests for the no-blink check
   requirements.txt
   README.md
 ```
@@ -354,7 +382,7 @@ stepping back down.
 
 | Limitation / Gap | Possible Future Solution |
 |---|---|
-| Coarse, pixel-based sunglasses detection | Train a small classifier specifically for lens/occlusion detection instead of a hand-tuned brightness heuristic |
+| Sunglasses not detectable by brightness on the test webcam (auto-exposure compensates) | Near-IR camera + IR illumination (many sunglass lenses pass near-IR, so the eye stays visible; standard in commercial driver-monitoring systems), or a small trained eye-visibility classifier |
 | No accuracy numbers yet | Controlled data collection with real test subjects once hardware exists, to measure actual false-positive/negative rates |
 | Head motion alone is ambiguous | IMU-based accident/impact detection as an additional, independent signal (sudden deceleration + orientation change) |
 | Fixed thresholds per install | Personalised alertness models based on an individual rider's historical behaviour |

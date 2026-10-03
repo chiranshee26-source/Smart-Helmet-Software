@@ -39,6 +39,7 @@ import cv2
 import numpy as np
 
 from config import EyeConfig
+from blink_monitor import BlinkMonitor
 from occlusion import _occlusion_decision, _occlusion_stats
 
 # Landmark indices for the left/right eye (6 points each, standard EAR
@@ -90,6 +91,7 @@ class EyeFrameResult:
     cheek_patch_mean: Optional[float] = None  # avg brightness of the cheek reference patch
     brightness_ratio: Optional[float] = None  # eye_patch_mean / cheek_patch_mean
     occlusion_reason: Optional[str] = None    # why the EAR was distrusted (see occlusion.py)
+    seconds_since_blink: Optional[float] = None  # from the no-blink check
     frame: Optional["np.ndarray"] = None  # BGR frame, for optional preview windows
 
 
@@ -183,6 +185,8 @@ class WebcamEyeTracker:
         self._cap: Optional[cv2.VideoCapture] = None
         self._backend = _make_backend()
         self._start_time = time.time()
+        self._blinks = BlinkMonitor(self.eye_cfg)
+        self.exposure_locked: Optional[bool] = None  # None = not attempted
 
     def open(self) -> None:
         if self._cap is None:
@@ -192,6 +196,28 @@ class WebcamEyeTracker:
                     f"Could not open webcam at index {self.camera_index}. "
                     "Check that a camera is connected and not in use by another app."
                 )
+            if self.eye_cfg.lock_camera_exposure:
+                self._try_lock_exposure()
+
+    def _try_lock_exposure(self) -> None:
+        """Best-effort: let auto-exposure settle, then freeze it at that
+        value. The meaning of CAP_PROP_AUTO_EXPOSURE differs between camera
+        backends (V4L2 on Linux, DirectShow/MSMF on Windows), so try the
+        common "manual" values and report whether any appeared to stick."""
+        cap = self._cap
+        for _ in range(20):  # ~1 s of frames for auto-exposure to settle
+            cap.read()
+        settled = cap.get(cv2.CAP_PROP_EXPOSURE)
+        before = cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)
+        self.exposure_locked = False
+        for manual_value in (0.25, 1.0, 0.0):
+            if cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, manual_value):
+                cap.set(cv2.CAP_PROP_EXPOSURE, settled)
+                if cap.get(cv2.CAP_PROP_AUTO_EXPOSURE) != before:
+                    self.exposure_locked = True
+                    break
+        print(f"[eye_detection] Exposure lock {'APPLIED' if self.exposure_locked else 'NOT supported by this camera/driver'} "
+              f"(auto-exposure {before} -> {cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}, exposure {settled}).")
 
     def read_once(self) -> EyeFrameResult:
         self.open()
@@ -207,6 +233,7 @@ class WebcamEyeTracker:
 
         landmarks = self._backend.process(rgb, timestamp_ms)
         if landmarks is None:
+            self._blinks.update(None, ts)
             return EyeFrameResult(timestamp=ts, ear=None, face_found=False, frame=frame)
 
         left_pts = [landmarks[i] for i in LEFT_EYE]
@@ -218,9 +245,12 @@ class WebcamEyeTracker:
         # heuristic itself is disabled.
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         stats = _occlusion_stats(gray, left_pts, right_pts, w, h, self.eye_cfg)
-        diag = {}
+        # Feed the raw EAR to the no-blink check before any decision, so a
+        # real blink can clear it even while the reading is being doubted.
+        no_blink = self._blinks.update(ear, ts)
+        diag = {"seconds_since_blink": self._blinks.seconds_since_blink(ts)}
         if stats is not None:
-            diag = dict(
+            diag.update(
                 eye_patch_mean=stats.eye_mean,
                 eye_patch_std=stats.eye_std,
                 cheek_patch_mean=stats.ref_mean,
@@ -239,6 +269,15 @@ class WebcamEyeTracker:
                     occlusion_suspected=True, occlusion_reason=reason,
                     frame=frame, **diag,
                 )
+
+        if no_blink:
+            # Eyes "visible" but not one blink in no_blink_seconds: likely a
+            # guessed EAR behind sunglasses. See blink_monitor.py.
+            return EyeFrameResult(
+                timestamp=ts, ear=None, face_found=True,
+                occlusion_suspected=True, occlusion_reason="no_blink",
+                frame=frame, **diag,
+            )
 
         return EyeFrameResult(
             timestamp=ts, ear=ear, face_found=True, frame=frame, **diag,

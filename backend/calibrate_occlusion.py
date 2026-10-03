@@ -113,11 +113,15 @@ def main():
     real_high = max(x["ratio_max"] for x in real)
     print("\nRecommended config.py values (inside EyeConfig):")
     separated = g["ratio_max"] < real_low
+    # Bright threshold: always well above every real-eye ratio, never below
+    # 1.5, so ordinary bare eyes can never trip the "mirrored lens" rule.
+    bright_ratio = max(1.5, real_high * 1.3)
     if separated:
         dark_ratio = g["ratio_max"] + 0.5 * (real_low - g["ratio_max"])
     else:
-        dark_ratio = min(cfg.occlusion_dark_ratio_threshold, real_low * 0.85)
-    bright_ratio = max(real_high * 1.25, real_high + 0.2)
+        # Can't separate these glasses: choose values that NEVER flag bare
+        # eyes (with margin), so the heuristic only catches extreme cases.
+        dark_ratio = real_low * 0.8
     print(f"    occlusion_dark_ratio_threshold: float = {dark_ratio:.2f}")
     print(f"    occlusion_bright_ratio_threshold: float = {bright_ratio:.2f}")
 
@@ -130,6 +134,14 @@ def main():
         print("Good: sunglasses ratio is clearly below every real-eye ratio,")
         print("including in dim light, so the check should work in both.")
     else:
+        if g["ratio"] > max(x["ratio"] for x in real):
+            print("Note: your sunglasses read BRIGHTER than bare eyes (ratio %.2f vs"
+                  % g["ratio"])
+            print("%.2f-%.2f). Webcam auto-exposure likely brightened the frame when"
+                  % (min(x["ratio"] for x in real), max(x["ratio"] for x in real)))
+            print("the lenses went on, and the frames may cover the cheek patch.\n")
+        print("The thresholds above are chosen so bare eyes are NEVER flagged;")
+        print("sunglasses detection will only catch extreme cases.\n")
         print("Warning: the sunglasses ratio overlaps with real eyes (open, closed")
         print("or dim). These glasses may not be reliably detected by brightness")
         print("alone -- record this as a known limitation rather than trusting")
