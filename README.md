@@ -196,6 +196,15 @@ absolute thresholds remain only as a fallback when the cheek isn't in
 frame. `calibrate_occlusion.py` now includes a dim-light step to check
 that bare eyes in low light are *not* flagged.
 
+**What calibration showed (4 Oct, laptop webcam):** the ratio fixed the
+dim-light bug (bare-eye brightness fell from 85 to 40, while the ratio stayed
+within 0.44–0.64). But the tested sunglasses read *brighter* than bare eyes
+(ratio 0.83, range 0.44–1.25): the webcam's auto-exposure brightens the
+frame when the lenses go on. **On this camera these sunglasses cannot be
+detected by brightness**, so thresholds are set to never flag bare eyes, and
+the check only catches extreme cases (opaque patch, strong glare). Reliable
+sunglasses handling is listed under Future Scope.
+
 ### 3. False alarms on startup / brief blips
 **Problem:** Early on, before the 15-second rolling window fills up, a
 couple of dropped frames or a single long blink could look like a large
@@ -354,7 +363,7 @@ stepping back down.
 
 | Limitation / Gap | Possible Future Solution |
 |---|---|
-| Coarse, pixel-based sunglasses detection | Train a small classifier specifically for lens/occlusion detection instead of a hand-tuned brightness heuristic |
+| Sunglasses not detectable by brightness on the test webcam (auto-exposure compensates) | Near-IR camera + IR illumination (many sunglass lenses pass near-IR, so the eye stays visible; standard in commercial driver-monitoring systems), or a small trained eye-visibility classifier |
 | No accuracy numbers yet | Controlled data collection with real test subjects once hardware exists, to measure actual false-positive/negative rates |
 | Head motion alone is ambiguous | IMU-based accident/impact detection as an additional, independent signal (sudden deceleration + orientation change) |
 | Fixed thresholds per install | Personalised alertness models based on an individual rider's historical behaviour |
