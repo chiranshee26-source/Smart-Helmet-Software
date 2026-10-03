@@ -19,6 +19,7 @@ and against a real ESP32-CAM + MPU6050 stream later without any changes.
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -77,6 +78,10 @@ class DecisionEngine:
         self._ear_samples: Deque[Tuple[float, Optional[float]]] = deque()  # (t, ear-or-None)
         self._nod_events: Deque[float] = deque()                     # timestamps
         self._last_head_pitch: Optional[float] = None
+        self._last_head_t: Optional[float] = None
+        self._head_baseline: Optional[float] = None
+        self._in_nod: bool = False
+        self._nod_started_at: Optional[float] = None
 
         self._level: AlertLevel = AlertLevel.GREEN
         self._pending_lower_level: Optional[AlertLevel] = None
@@ -101,13 +106,45 @@ class DecisionEngine:
             self._ear_samples.popleft()
 
     def update_head(self, pitch_deg: float, timestamp: float) -> None:
-        if self._last_head_pitch is not None:
-            delta = abs(pitch_deg - self._last_head_pitch)
-            if delta >= self.cfg.head.nod_pitch_delta_threshold:
-                self._nod_events.append(timestamp)
+        """Edge-triggered nod detection against a slowly-adapting baseline.
+
+        One nod = one event: the event fires when |pitch - baseline| first
+        crosses the threshold, and no further event can fire until the head
+        returns close to baseline (hysteresis). Comparing against a baseline
+        rather than the previous sample makes detection independent of the
+        IMU sample rate and catches slow droops, not just sharp jerks."""
+        hc = self.cfg.head
         self._last_head_pitch = pitch_deg
 
-        cutoff = timestamp - self.cfg.head.motion_window_seconds
+        if self._head_baseline is None:
+            self._head_baseline = pitch_deg
+            self._last_head_t = timestamp
+            return
+
+        dt = max(0.0, timestamp - (self._last_head_t or timestamp))
+        self._last_head_t = timestamp
+        deviation = abs(pitch_deg - self._head_baseline)
+
+        if not self._in_nod:
+            if deviation >= hc.nod_pitch_delta_threshold:
+                self._in_nod = True
+                self._nod_started_at = timestamp
+                self._nod_events.append(timestamp)
+            else:
+                alpha = 1.0 - math.exp(-dt / hc.baseline_tau_seconds) if dt > 0 else 0.0
+                self._head_baseline += alpha * (pitch_deg - self._head_baseline)
+        else:
+            released = deviation <= hc.nod_pitch_delta_threshold * hc.nod_release_ratio
+            held_too_long = (
+                timestamp - (self._nod_started_at or timestamp) >= hc.nod_max_hold_seconds
+            )
+            if released or held_too_long:
+                self._in_nod = False
+                self._nod_started_at = None
+                if held_too_long:
+                    self._head_baseline = pitch_deg  # posture change: re-baseline
+
+        cutoff = timestamp - hc.motion_window_seconds
         while self._nod_events and self._nod_events[0] < cutoff:
             self._nod_events.popleft()
 

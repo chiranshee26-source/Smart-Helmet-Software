@@ -131,6 +131,107 @@ def test_manual_nod_injection_contributes_to_score():
     assert state.head_score > 0.0
 
 
+def _feed_pitch(engine, pitches, dt=0.2, t0=0.0):
+    t = t0
+    for p in pitches:
+        engine.update_eye(0.30, t)
+        engine.update_head(p, t)
+        engine.tick(t)
+        t += dt
+    return t
+
+
+def test_single_nod_counts_once_not_twice():
+    # A one-sample spike used to count twice (the dip AND the recovery both
+    # exceeded the sample-to-sample delta threshold).
+    engine = make_engine()
+    _feed_pitch(engine, [0.0] * 10 + [-25.0] + [0.0] * 10)
+    assert engine.tick(5.0).nod_count == 1
+
+
+def test_slow_droop_is_detected():
+    # A real drowsy nod is a slow droop: 30 deg over ~1 s is only ~6 deg per
+    # sample at 5 Hz, which a sample-to-sample check never catches.
+    engine = make_engine()
+    # Recovery is gradual too, so a "snap back up" can't be what triggers it.
+    droop = (
+        [0.0] * 10
+        + [-6.0 * k for k in range(1, 6)]
+        + [-30.0] * 3
+        + [-6.0 * k for k in range(4, -1, -1)]
+        + [0.0] * 5
+    )
+    _feed_pitch(engine, droop)
+    assert engine.tick(5.0).nod_count == 1
+
+
+def test_nod_count_independent_of_sample_rate():
+    # Same physical nod (dip to -30 deg over 1 s, recover over 1 s), sampled
+    # at 5 Hz (simulator) and 100 Hz (realistic MPU6050 rate).
+    def nod_shape(t):
+        if t < 2.0:
+            return 0.0
+        if t < 3.0:
+            return -30.0 * (t - 2.0)
+        if t < 4.0:
+            return -30.0 * (4.0 - t)
+        return 0.0
+
+    counts = []
+    for hz in (5, 100):
+        engine = make_engine()
+        dt = 1.0 / hz
+        _feed_pitch(engine, [nod_shape(k * dt) for k in range(int(6 * hz))], dt=dt)
+        counts.append(engine.tick(6.0).nod_count)
+    assert counts == [1, 1], counts
+
+
+def test_baseline_tracks_slow_posture_drift():
+    # Rider slowly settles into a 20-deg-forward riding posture over 60 s.
+    # That is a posture change, not a nod.
+    engine = make_engine()
+    _feed_pitch(engine, [-20.0 * min(1.0, k / 300) for k in range(400)])
+    assert engine.tick(80.0).nod_count == 0
+
+
+def test_idle_simulator_does_not_false_alarm():
+    # Eyes open + the simulator at the rate main.py uses: the idle dashboard
+    # must not raise alerts on its own.
+    from imu_simulator import ImuSimulator
+
+    for seed in range(3):
+        engine = make_engine()
+        sim = ImuSimulator(random_nod_probability_per_tick=0.002, seed=seed)
+        t = 0.0
+        for _ in range(5 * 60 * 5):  # 5 minutes at 5 Hz
+            engine.update_eye(0.32, t)
+            engine.update_head(sim.tick(t).pitch_deg, t)
+            state = engine.tick(t)
+            assert state.alert_level == AlertLevel.GREEN, f"seed {seed} t={t:.1f}"
+            t += 0.2
+
+
+def test_demo_clicks_escalate_progressively():
+    # Dashboard "Inject head-nod" button: 1 click stays GREEN, 2 -> YELLOW,
+    # 3 -> RED (previously 1 click jumped straight to YELLOW).
+    from imu_simulator import ImuSimulator
+
+    expected = {1: AlertLevel.GREEN, 2: AlertLevel.YELLOW, 3: AlertLevel.RED}
+    for clicks, want in expected.items():
+        engine = make_engine()
+        sim = ImuSimulator(seed=1)
+        t, peak = 0.0, AlertLevel.GREEN
+        click_ticks = {10 + 8 * k for k in range(clicks)}
+        for i in range(60):
+            if i in click_ticks:
+                sim.trigger_nod()
+            engine.update_eye(0.32, t)
+            engine.update_head(sim.tick(t).pitch_deg, t)
+            peak = max(peak, engine.tick(t).alert_level)
+            t += 0.2
+        assert peak == want, f"{clicks} clicks -> {peak.name}, expected {want.name}"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for test in tests:

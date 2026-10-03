@@ -61,9 +61,27 @@ class EyeConfig:
 
 @dataclass
 class HeadConfig:
-    # A single head-motion sample is flagged as a "nod event" when the pitch
-    # change between consecutive samples exceeds this (degrees).
+    # A "nod event" is registered when head pitch deviates from the rider's
+    # recent resting pitch (a slowly-adapting baseline) by at least this many
+    # degrees. Measured against the baseline -- NOT sample-to-sample -- so a
+    # slow droop is caught the same as a fast one, and the result doesn't
+    # depend on the IMU sample rate (5 Hz simulator vs 50-100 Hz MPU6050).
     nod_pitch_delta_threshold: float = 18.0
+
+    # Hysteresis: once a nod has been registered, the head must come back to
+    # within (threshold * this ratio) of the baseline before another nod can
+    # be counted. Stops the dip AND the recovery of one nod both counting.
+    nod_release_ratio: float = 0.5
+
+    # Time constant (seconds) of the resting-pitch baseline. It only adapts
+    # while the head is NOT mid-nod, so a nod can't drag the baseline with it.
+    baseline_tau_seconds: float = 5.0
+
+    # If the head stays deviated longer than this, treat it as a posture
+    # change (helmet re-seated, rider leaning) and re-baseline instead of
+    # staying "mid-nod" forever. Sustained eye closure is still caught by
+    # the eye channel.
+    nod_max_hold_seconds: float = 10.0
 
     # Rolling window (seconds) over which nod-event frequency is computed.
     motion_window_seconds: float = 15.0

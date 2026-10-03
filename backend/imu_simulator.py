@@ -51,6 +51,10 @@ class ImuSimulator:
         self._rng = random.Random(seed)
         self._t0 = time.time()
         self._forced_nod_pending = False
+        # Remaining pitch offsets (fractions of nod_amplitude) for a nod in
+        # progress. A real nod is a dip-and-recover over ~1 s, not a single
+        # one-sample spike, so each nod is played out over several ticks.
+        self._nod_profile_remaining: list = []
 
     def trigger_nod(self) -> None:
         """Manually queue a single nod event on the next tick (for demo/API control)."""
@@ -65,14 +69,19 @@ class ImuSimulator:
         pitch = self.base_pitch + drift + noise
 
         nod = False
-        if self._forced_nod_pending:
-            nod = True
-            self._forced_nod_pending = False
-        elif self._rng.random() < self.random_nod_p:
-            nod = True
+        if not self._nod_profile_remaining:
+            if self._forced_nod_pending:
+                nod = True
+                self._forced_nod_pending = False
+            elif self._rng.random() < self.random_nod_p:
+                nod = True
+            if nod:
+                # Head drops forward (negative pitch) then comes back up.
+                self._nod_profile_remaining = [0.4, 0.9, 1.0, 0.8, 0.4]
 
-        if nod:
-            pitch += self.nod_amplitude * self._rng.choice([-1, 1])
+        if self._nod_profile_remaining:
+            frac = self._nod_profile_remaining.pop(0)
+            pitch -= self.nod_amplitude * frac
 
         return ImuSample(timestamp=ts, pitch_deg=pitch, nod_injected=nod)
 

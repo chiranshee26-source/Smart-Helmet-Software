@@ -120,8 +120,15 @@ drowsiness — every signal is analysed over a rolling time window.
 
 **Head-Movement Analysis**
 - The IMU provides pitch data.
-- A large enough pitch change between consecutive samples is flagged as a
-  "nod event."
+- A "nod event" is registered when pitch deviates from the rider's resting
+  pitch (a slowly-adapting baseline) by at least 18°. Because it is measured
+  against the baseline rather than sample-to-sample, a slow droop is caught
+  the same as a sharp jerk, and the result doesn't depend on the IMU sample
+  rate.
+- Hysteresis: one nod counts once. The head must return near baseline before
+  another nod can register, so the dip and the recovery aren't both counted.
+  A deviation held for over 10 s is treated as a posture change and
+  re-baselined.
 - Nod frequency within the rolling window drives the head-severity score.
 
 **Fusion**
@@ -281,9 +288,10 @@ channel just shows "no camera detected" and the dashboard still works fully
 off the simulated head-motion channel — nothing crashes either way.
 
 To see the full progressive alert system without waiting to actually get
-drowsy: click **"Inject head-nod event"** a few times on the dashboard.
-You'll see the composite score climb and the alert escalate
-GREEN → YELLOW → RED, then hold RED for a few seconds before recovering.
+drowsy: click **"Inject head-nod event"** on the dashboard. One click stays
+GREEN, a second (within 15 s) raises YELLOW, a third raises RED. The alert
+then holds for a few seconds after the nods age out of the window before
+stepping back down.
 
 ## Development Roadmap
 
