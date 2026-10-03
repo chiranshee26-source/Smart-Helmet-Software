@@ -232,6 +232,82 @@ def test_demo_clicks_escalate_progressively():
         assert peak == want, f"{clicks} clicks -> {peak.name}, expected {want.name}"
 
 
+# --- Blink- and squint-aware PERCLOS ---------------------------------------
+
+def _eye_stream(engine, seconds, ear_at, hz=15, t0=0.0):
+    """Feed EAR samples from ear_at(t) at `hz`; return peak level and last state."""
+    dt, t = 1.0 / hz, t0
+    peak, state = AlertLevel.GREEN, None
+    while t < t0 + seconds:
+        engine.update_eye(ear_at(t), t)
+        engine.update_head(0.0, t)
+        state = engine.tick(t)
+        peak = max(peak, state.alert_level)
+        t += dt
+    return peak, state
+
+
+def _blinking(open_ear, blinks_per_min, blink_s, closed_ear=0.10):
+    period = 60.0 / blinks_per_min
+    return lambda t: closed_ear if (t % period) < blink_s else open_ear
+
+
+def test_frequent_normal_blinks_in_wind_stay_green():
+    # Wind / irritated eyes: 30 blinks a minute, 250 ms each. Previously
+    # this reached YELLOW (and RED when squinting); an alert rider blinking
+    # a lot is not drowsy.
+    engine = make_engine()
+    peak, state = _eye_stream(engine, 90, _blinking(0.33, 30, 0.25))
+    assert peak == AlertLevel.GREEN, f"peak {peak.name}, perclos {state.perclos:.2f}"
+    assert state.perclos == 0.0
+
+
+def test_squinting_in_wind_stays_green():
+    # 20 s of normal open eyes to learn the baseline, then a sustained squint
+    # at EAR 0.20 (below the old fixed 0.21 threshold) with frequent blinks.
+    engine = make_engine()
+    _eye_stream(engine, 20, _blinking(0.33, 15, 0.15))
+    peak, state = _eye_stream(engine, 60, _blinking(0.20, 30, 0.25), t0=20)
+    assert peak == AlertLevel.GREEN, f"peak {peak.name}, thr {state.ear_closed_threshold:.3f}"
+
+
+def test_slow_drowsy_blinks_escalate():
+    # Drowsy pattern: long 0.9 s closures every 3 s (30% of the time closed).
+    engine = make_engine()
+    _eye_stream(engine, 20, _blinking(0.33, 15, 0.15))
+    peak, _ = _eye_stream(engine, 40, _blinking(0.33, 20, 0.9), t0=20)
+    assert peak >= AlertLevel.YELLOW
+
+
+def test_sustained_closure_still_reaches_red_at_15hz():
+    engine = make_engine()
+    _eye_stream(engine, 20, _blinking(0.33, 15, 0.15))
+    peak, _ = _eye_stream(engine, 20, lambda t: 0.10, t0=20)
+    assert peak == AlertLevel.RED
+
+
+def test_eyes_closed_from_startup_cannot_become_the_baseline():
+    # Safety guard: if the rider's eyes are closed from the start, the
+    # "personal baseline" must not learn closed as normal.
+    engine = make_engine()
+    peak, state = _eye_stream(engine, 30, lambda t: 0.10)
+    assert peak == AlertLevel.RED
+    assert state.ear_closed_threshold == AppConfig().eye.ear_closed_threshold
+
+
+def test_personal_threshold_never_stricter_than_fixed():
+    engine = make_engine()
+    _, state = _eye_stream(engine, 30, _blinking(0.45, 15, 0.15))  # very wide eyes
+    assert state.ear_closed_threshold <= AppConfig().eye.ear_closed_threshold
+
+
+def test_brief_face_dropouts_do_not_count():
+    # 200 ms "no face" dropout every 2 s (tracking glitches) is not closure.
+    engine = make_engine()
+    peak, state = _eye_stream(engine, 60, lambda t: None if (t % 2.0) < 0.2 else 0.33)
+    assert peak == AlertLevel.GREEN and state.perclos == 0.0
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for test in tests:

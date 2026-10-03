@@ -10,6 +10,7 @@ const eyeScoreValue = document.getElementById("eye-score-value");
 const ratioValue = document.getElementById("ratio-value");
 const eyeLightValue = document.getElementById("eye-light-value");
 const blinkValue = document.getElementById("blink-value");
+const closedThrValue = document.getElementById("closed-thr-value");
 
 const OCCLUSION_NOTES = {
   lens_dark: "(eyes much darker than cheeks — sunglasses suspected, eye reading distrusted)",
@@ -107,6 +108,8 @@ function connect() {
       cameraNote.textContent = "";
     }
     earValue.textContent = s.ear !== null ? s.ear.toFixed(3) : "—";
+    closedThrValue.textContent = s.ear_closed_threshold != null ? s.ear_closed_threshold.toFixed(2) : "—";
+    earValue.title = s.eye_fps ? `camera sampling ~${s.eye_fps} Hz` : "";
     perclosValue.textContent = (s.perclos * 100).toFixed(0) + "%";
     eyeScoreValue.textContent = s.eye_score.toFixed(2);
     ratioValue.textContent = s.brightness_ratio != null ? s.brightness_ratio.toFixed(2) : "—";

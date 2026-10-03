@@ -114,7 +114,13 @@ drowsiness — every signal is analysed over a rolling time window.
 
 **Eye / Face Analysis**
 - Eye Aspect Ratio (EAR) is computed from live camera frames.
-- Sustained or repeated low EAR indicates prolonged eye closure.
+- "Closed" means P80 closure (eyelid covering about 80% of the eye),
+  measured against the rider's own open-eye EAR, so a squint doesn't count.
+- Only closures lasting at least 0.4 s count. Ordinary blinks, even
+  frequent ones when wind hits the eyes, are ignored; drowsiness shows up
+  as longer, slower closures.
+- The camera is sampled at ~15 Hz in a background thread so blink duration
+  can actually be measured.
 - A PERCLOS-style rolling window (percentage of time eyes are closed) is
   used, not a single-frame check.
 
@@ -237,6 +243,27 @@ and falls back from the legacy `FaceMesh` API to the modern
 `FaceLandmarker` Tasks API automatically, so the same code works across
 mediapipe versions without the user needing to pin an old release.
 
+### 5. Wind on the eyes: frequent blinks and squinting
+**Problem:** On a two-wheeler, wind and cold reach the eyes even with a
+helmet on, so riders blink more and squint. The original PERCLOS counted
+every frame with EAR below a fixed 0.21 as "closed", including normal
+blinks and squints. In testing, frequent normal blinking reached YELLOW,
+and squinting near the threshold locked the alert on RED, for a rider who
+was fully alert. Staying GREEN meant holding the eyes open until they stung.
+**Fix:** (`decision_engine.py`)
+- Closures shorter than `min_closure_seconds` (0.4 s) are treated as normal
+  blinks and never count toward PERCLOS.
+- "Closed" uses the conventional P80 definition relative to the rider's own
+  open-eye EAR (a high percentile of the last 60 s), so a squint (~50%
+  closed) doesn't count. Safety guards: the personal threshold can only be
+  more lenient than the fixed 0.21, never stricter; it isn't used until a
+  plausible open-eye level has been seen (so eyes closed from start-up still
+  alert); and during a long squint or slow droop the last good open-eye level
+  is kept instead of adapting down to it.
+- The eye channel is sampled at ~15 Hz so blink duration is measurable.
+In simulation, alert riders blinking 30 times a minute and squinting stay
+GREEN, while 0.9–1.5 s drowsy closures still reach RED.
+
 ## Calibration & Testing
 
 The project brief is explicit that thresholds must be calibrated against
@@ -268,6 +295,8 @@ provisional until `calibrate_occlusion.py` is re-run (see edge case 2).
 
 - Stays GREEN on normal, steady input
 - Escalates to RED on sustained eye closure
+- Frequent normal blinks and squinting (wind) stay GREEN; slow drowsy
+  closures escalate; eyes closed from start-up can't become the baseline
 - Escalates on repeated head-nod events alone
 - Escalation is immediate, never delayed
 - De-escalation requires sustained recovery
@@ -362,6 +391,11 @@ stepping back down.
   know whether the rider is asleep.
 - Camera reliability is affected by lighting, occlusion, sunglasses,
   helmet fit, and mount placement.
+- A rider who is already squinting heavily from the moment the system
+  starts has no open-eye baseline yet, so the fixed 0.21 threshold applies
+  until normal open eyes are seen. The 0.4 s blink cut-off and P80 level
+  come from the drowsiness literature and still need validating against
+  real riding data.
 - Head movement alone is ambiguous (e.g. adjusting a helmet strap could
   look like a "nod") — which is exactly why it's fused with the eye channel
   rather than trusted alone.
