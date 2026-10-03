@@ -87,6 +87,9 @@ async def _sensor_loop():
         now = time.time()
 
         occlusion_suspected = False
+        occlusion_reason = None
+        brightness_ratio = None
+        eye_patch_mean = None
         face_found = False
         if _eye_enabled and _eye_tracker is not None:
             result = await asyncio.get_event_loop().run_in_executor(
@@ -97,6 +100,9 @@ async def _sensor_loop():
             # warning condition, not neutral. See decision_engine.update_eye.
             engine.update_eye(result.ear, result.timestamp)
             occlusion_suspected = result.occlusion_suspected
+            occlusion_reason = result.occlusion_reason
+            brightness_ratio = result.brightness_ratio
+            eye_patch_mean = result.eye_patch_mean
             face_found = result.face_found
 
         imu_sample = imu.tick(now)
@@ -109,6 +115,9 @@ async def _sensor_loop():
             "camera_enabled": _eye_enabled,
             "face_found": face_found,
             "occlusion_suspected": occlusion_suspected,
+            "occlusion_reason": occlusion_reason,
+            "brightness_ratio": round(brightness_ratio, 3) if brightness_ratio is not None else None,
+            "eye_patch_mean": round(eye_patch_mean, 1) if eye_patch_mean is not None else None,
             "perclos": round(state.perclos, 3),
             "eye_score": round(state.eye_score, 3),
             "head_pitch_deg": round(state.head_pitch_deg, 2) if state.head_pitch_deg is not None else None,

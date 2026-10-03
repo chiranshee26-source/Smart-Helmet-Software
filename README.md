@@ -175,15 +175,26 @@ see the rider is itself a warning condition.
 coordinates even when sunglasses cover the eyes — it infers the full face
 shape and doesn't know it can't see through the lenses — producing a
 confident-looking but meaningless EAR reading.
-**Fix:** Added a pixel-based heuristic (`_looks_like_occluded_lens` in
-`occlusion.py`) that inspects the actual pixels under each eye. A real
-eyelid has texture (skin, lashes, a highlight on the sclera); a sunglasses
-lens is usually much flatter — uniformly dark (tinted) or uniformly bright
-(reflective). When a patch looks too uniform, or unusually dark or bright,
-that frame's EAR is treated as unreliable, same as "no face detected."
-This was calibrated against real test data (see below) — texture alone
-turned out not to separate real eyes from a lens reliably on a typical
-webcam, so the heuristic ended up driven mainly by brightness.
+**Fix (v1):** Added a pixel-based heuristic that inspected the eye-region
+pixels and flagged "sunglasses" when the patch was unusually dark, bright
+or flat, against fixed brightness thresholds calibrated in one session.
+
+**Problem found with v1:** fixed brightness thresholds don't survive a change
+of lighting. In a dimmer room, bare eyes read darker than the calibrated
+"sunglasses" threshold, so *every* frame was flagged, every eye reading was
+discarded, PERCLOS hit ~100% and the alert locked on RED. On a real helmet
+that would happen at dusk or in a tunnel.
+
+**Fix (v2, current):** the heuristic now compares the eye patch with a
+bare-skin reference patch on the cheekbone below each eye
+(`occlusion.py`). Dim light darkens the whole face roughly equally, so the
+eye/cheek brightness ratio stays steady; a tinted lens darkens only the
+eyes, so the ratio drops. The dashboard shows the live ratio and the
+specific reason an eye reading was distrusted (tinted lens, mirrored
+lens/glare, featureless patch, or too dark for the camera to see). The old
+absolute thresholds remain only as a fallback when the cheek isn't in
+frame. `calibrate_occlusion.py` now includes a dim-light step to check
+that bare eyes in low light are *not* flagged.
 
 ### 3. False alarms on startup / brief blips
 **Problem:** Early on, before the 15-second rolling window fills up, a
@@ -225,6 +236,10 @@ actual measurements from the interactive calibration scripts in this repo
 | Eyes open | 106.1 |
 | Eyes closed | 96.9 |
 | Sunglasses on | 63.4 |
+
+These absolute readings were the v1 calibration. They are now only used as a
+fallback; the primary eye/cheek ratio thresholds in `config.py` are
+provisional until `calibrate_occlusion.py` is re-run (see edge case 2).
 
 **Automated test coverage** (`tests/`):
 
@@ -326,7 +341,12 @@ stepping back down.
   are being claimed before controlled testing with real subjects.
 - The occlusion heuristic (sunglasses detection) is a coarse pixel-based
   check, not true occlusion recognition, and needs per-camera/per-lighting
-  calibration — it is a partial mitigation, not a fix.
+  calibration — it is a partial mitigation, not a fix. The eye/cheek ratio
+  makes it robust to overall room brightness, but not to uneven lighting
+  (e.g. a strong side light, or a helmet visor shading only the eyes).
+- At night a normal camera can't see the rider at all; the system reports
+  "too dark" and distrusts the eye channel. A real helmet would need IR
+  illumination and an IR-capable camera.
 - This is a safety-assistance prototype. It cannot guarantee accident
   prevention.
 

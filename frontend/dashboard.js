@@ -7,6 +7,16 @@ const cameraNote = document.getElementById("camera-note");
 const earValue = document.getElementById("ear-value");
 const perclosValue = document.getElementById("perclos-value");
 const eyeScoreValue = document.getElementById("eye-score-value");
+const ratioValue = document.getElementById("ratio-value");
+const eyeLightValue = document.getElementById("eye-light-value");
+
+const OCCLUSION_NOTES = {
+  lens_dark: "(eyes much darker than cheeks — sunglasses suspected, eye reading distrusted)",
+  lens_bright: "(eyes much brighter than cheeks — mirrored lens or glare, eye reading distrusted)",
+  flat: "(eye area has no texture — possible lens, eye reading distrusted)",
+  too_dark: "(too dark for the camera to see — eye reading distrusted)",
+  absolute_fallback: "(possible sunglasses/lens occlusion — eye reading distrusted)",
+};
 
 const pitchValue = document.getElementById("pitch-value");
 const nodCountValue = document.getElementById("nod-count-value");
@@ -88,7 +98,7 @@ function connect() {
     if (!s.camera_enabled) {
       cameraNote.textContent = "(no camera detected — head channel only)";
     } else if (s.occlusion_suspected) {
-      cameraNote.textContent = "(possible sunglasses/lens occlusion — eye reading distrusted)";
+      cameraNote.textContent = OCCLUSION_NOTES[s.occlusion_reason] || OCCLUSION_NOTES.absolute_fallback;
     } else if (!s.face_found) {
       cameraNote.textContent = "(no face detected)";
     } else {
@@ -97,6 +107,8 @@ function connect() {
     earValue.textContent = s.ear !== null ? s.ear.toFixed(3) : "—";
     perclosValue.textContent = (s.perclos * 100).toFixed(0) + "%";
     eyeScoreValue.textContent = s.eye_score.toFixed(2);
+    ratioValue.textContent = s.brightness_ratio != null ? s.brightness_ratio.toFixed(2) : "—";
+    eyeLightValue.textContent = s.eye_patch_mean != null ? Math.round(s.eye_patch_mean) : "—";
     earChart.push(s.ear);
 
     pitchValue.textContent = s.head_pitch_deg !== null ? s.head_pitch_deg.toFixed(1) + "°" : "—";
