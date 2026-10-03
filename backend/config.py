@@ -46,7 +46,7 @@ class EyeConfig:
     # detection -- it is not guaranteed to catch every case (documented as
     # a known limitation either way).
     #
-    # Values below calibrated via calibrate_occlusion.py against this
+    # Absolute values below calibrated via calibrate_occlusion.py against this
     # user's actual camera/lighting/sunglasses on 2026-09-19:
     #   eyes open (no glasses):   brightness mean=106.1, texture std=29.2
     #   eyes closed (no glasses): brightness mean=96.9,  texture std=30.9
@@ -57,6 +57,34 @@ class EyeConfig:
     occlusion_std_threshold: float = 17.5         # below this = "too uniform" (0-255 grayscale)
     occlusion_dark_mean_threshold: float = 80.1   # below this = "too dark"
     occlusion_bright_mean_threshold: float = 180.6  # above this = "too bright/reflective"
+    # ^ These three absolute values are now only a FALLBACK, used when the
+    #   cheek reference patch can't be sampled. See below.
+
+    # --- Lighting-invariant check (primary, added 2026-10-04) ---
+    # The absolute 80.1 dark threshold above flagged bare eyes as
+    # "sunglasses" in a dimmer room (bare-eye patch fell below 80), which
+    # discarded every eye reading and locked the alert on RED. The primary
+    # check now compares the eye patch with a bare-skin patch on the
+    # cheekbone below each eye: ratio = eye_brightness / cheek_brightness.
+    # Dim light darkens both, so the ratio holds; a tinted lens darkens only
+    # the eyes, so the ratio drops. See occlusion.py.
+    #
+    # PROVISIONAL DEFAULTS -- not yet calibrated on this camera. Run
+    # `python calibrate_occlusion.py` (it now includes a dim-light step) and
+    # paste the recommended values here.
+    # 0.65 derived from the 2026-09-19 readings: sunglasses eye patch 63.4 vs
+    # bare 106.1 (~0.60 of bare). If cheeks read about as bright as bare
+    # eyes, sunglasses sit near 0.60 and bare eyes near 1.0; if cheeks are
+    # brighter (~130), roughly 0.49 vs 0.82. 0.65 separates both cases.
+    occlusion_dark_ratio_threshold: float = 0.65    # eye/cheek below this = tinted lens
+    occlusion_bright_ratio_threshold: float = 1.50  # eye/cheek above this = mirrored lens / glare
+    occlusion_min_texture_cv: float = 0.05          # eye std/mean below this = featureless flat patch
+    # Cheek brightness below this (0-255) = face too dark for the camera to
+    # see at all. EAR is distrusted with reason "too_dark", not "sunglasses".
+    occlusion_too_dark_floor: float = 25.0
+    # Where the cheek patch sits: this many eye-widths below the eye centre
+    # (far enough down to clear typical sunglasses lenses).
+    cheek_offset_eye_widths: float = 1.2
 
 
 @dataclass

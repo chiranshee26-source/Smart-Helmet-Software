@@ -39,7 +39,7 @@ import cv2
 import numpy as np
 
 from config import EyeConfig
-from occlusion import _eye_region_stats, _occlusion_thresholds_fire
+from occlusion import _occlusion_decision, _occlusion_stats
 
 # Landmark indices for the left/right eye (6 points each, standard EAR
 # formula). Same indices work for both the legacy FaceMesh (with
@@ -87,6 +87,9 @@ class EyeFrameResult:
     occlusion_suspected: bool = False  # True if sunglasses/lens occlusion heuristic fired
     eye_patch_mean: Optional[float] = None  # avg pixel brightness under the eyes (0-255)
     eye_patch_std: Optional[float] = None   # avg pixel texture/uniformity under the eyes
+    cheek_patch_mean: Optional[float] = None  # avg brightness of the cheek reference patch
+    brightness_ratio: Optional[float] = None  # eye_patch_mean / cheek_patch_mean
+    occlusion_reason: Optional[str] = None    # why the EAR was distrusted (see occlusion.py)
     frame: Optional["np.ndarray"] = None  # BGR frame, for optional preview windows
 
 
@@ -214,27 +217,31 @@ class WebcamEyeTracker:
         # available for calibration/debugging even if the occlusion
         # heuristic itself is disabled.
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        stats = _eye_region_stats(gray, left_pts, right_pts, w, h)
-        patch_mean, patch_std = stats if stats is not None else (None, None)
+        stats = _occlusion_stats(gray, left_pts, right_pts, w, h, self.eye_cfg)
+        diag = {}
+        if stats is not None:
+            diag = dict(
+                eye_patch_mean=stats.eye_mean,
+                eye_patch_std=stats.eye_std,
+                cheek_patch_mean=stats.ref_mean,
+                brightness_ratio=stats.ratio,
+            )
 
         if self.eye_cfg.enable_occlusion_heuristic and stats is not None:
-            if _occlusion_thresholds_fire(patch_mean, patch_std, self.eye_cfg):
-                # Landmarks were found, but the eye region itself looks like
-                # a flat lens rather than a real eyelid -- the EAR computed
-                # above is not trustworthy, so treat this frame the same as
-                # "no face detected" rather than reporting a confident but
-                # meaningless number.
+            fires, reason = _occlusion_decision(stats, self.eye_cfg)
+            if fires:
+                # Landmarks were found, but the eye region can't be trusted
+                # (lens, glare, or too dark to see) -- treat this frame the
+                # same as "no face detected" rather than reporting a
+                # confident but meaningless EAR.
                 return EyeFrameResult(
                     timestamp=ts, ear=None, face_found=True,
-                    occlusion_suspected=True,
-                    eye_patch_mean=patch_mean, eye_patch_std=patch_std,
-                    frame=frame,
+                    occlusion_suspected=True, occlusion_reason=reason,
+                    frame=frame, **diag,
                 )
 
         return EyeFrameResult(
-            timestamp=ts, ear=ear, face_found=True,
-            eye_patch_mean=patch_mean, eye_patch_std=patch_std,
-            frame=frame,
+            timestamp=ts, ear=ear, face_found=True, frame=frame, **diag,
         )
 
     def stream(self) -> Iterator[EyeFrameResult]:
