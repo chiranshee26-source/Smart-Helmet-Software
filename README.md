@@ -72,8 +72,8 @@ The system works in four stages:
   state machine.
 - **A live web dashboard** (FastAPI + WebSocket) showing the current alert
   level, EAR, head pitch, composite score, and an event log in real time.
-- **13 automated unit tests** covering escalation, de-escalation, and the
-  edge cases described below.
+- **Automated unit tests** covering escalation, de-escalation, the
+  sunglasses heuristic, and the edge cases described below.
 
 ## Architecture
 
@@ -169,7 +169,7 @@ coordinates even when sunglasses cover the eyes — it infers the full face
 shape and doesn't know it can't see through the lenses — producing a
 confident-looking but meaningless EAR reading.
 **Fix:** Added a pixel-based heuristic (`_looks_like_occluded_lens` in
-`eye_detection.py`) that inspects the actual pixels under each eye. A real
+`occlusion.py`) that inspects the actual pixels under each eye. A real
 eyelid has texture (skin, lashes, a highlight on the sclera); a sunglasses
 lens is usually much flatter — uniformly dark (tinted) or uniformly bright
 (reflective). When a patch looks too uniform, or unusually dark or bright,
@@ -219,7 +219,7 @@ actual measurements from the interactive calibration scripts in this repo
 | Eyes closed | 96.9 |
 | Sunglasses on | 63.4 |
 
-**Automated test coverage** (`tests/`, 13 tests total):
+**Automated test coverage** (`tests/`):
 
 - Stays GREEN on normal, steady input
 - Escalates to RED on sustained eye closure
@@ -228,8 +228,11 @@ actual measurements from the interactive calibration scripts in this repo
 - De-escalation requires sustained recovery
 - Sustained no-face-detected escalates the alert
 - Brief blips (a blink, a dropped frame) do not false-alarm
-- Occlusion heuristic flags flat/dark or bright patches
-- Occlusion heuristic does not flag textured, normal eyes
+- Occlusion heuristic flags the calibrated sunglasses reading, bright
+  reflective lenses, and flat uniform patches
+- Occlusion heuristic does not flag the calibrated open- or closed-eye
+  readings (a closed eye must not be mistaken for "can't see")
+- Off-frame landmarks don't crash or false-flag
 
 Run them with:
 
@@ -249,7 +252,8 @@ smart-helmet-software/
   backend/
     config.py               # every calibratable threshold, with sourced comments
     decision_engine.py       # fusion + GREEN/YELLOW/RED state machine (no hardware deps)
-    eye_detection.py          # webcam -> EAR, dual mediapipe backend + occlusion heuristic
+    eye_detection.py          # webcam -> EAR, dual mediapipe backend
+    occlusion.py              # sunglasses/occlusion heuristic (numpy only, unit-tested)
     imu_simulator.py           # stand-in for the MPU6050
     main.py                     # FastAPI app: wires it together, serves the dashboard
     calibrate.py                # interactive EAR calibration against your own camera
