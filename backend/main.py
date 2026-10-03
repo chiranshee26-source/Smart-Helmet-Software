@@ -69,7 +69,11 @@ def _try_init_camera():
 
 from imu_simulator import ImuSimulator  # noqa: E402
 
-imu = ImuSimulator(random_nod_probability_per_tick=0.01)
+# Occasional spontaneous nods keep the idle demo from looking flat. At 5 Hz,
+# 0.002/tick is roughly one nod every ~100 s -- rare enough that a single
+# random nod (head score 0.25) never stacks into a false YELLOW on its own.
+# (0.01 produced ~10-17 false escalations per 10 idle minutes.)
+imu = ImuSimulator(random_nod_probability_per_tick=0.002)
 
 _clients: set[WebSocket] = set()
 _running = True
