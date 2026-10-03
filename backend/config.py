@@ -12,9 +12,45 @@ from dataclasses import dataclass, field
 
 @dataclass
 class EyeConfig:
-    # EAR below this is considered "closed". Typical open-eye EAR ~0.25-0.35,
-    # closed-eye EAR ~0.1-0.2. Calibrate per-camera/per-person if possible.
+    # EAR below this is considered "closed" until a personal open-eye
+    # baseline has been learned (see below), and as a fallback whenever the
+    # baseline is implausibly low. Typical open-eye EAR ~0.25-0.35,
+    # closed-eye EAR ~0.1-0.2.
     ear_closed_threshold: float = 0.21
+
+    # --- Blink- and squint-aware PERCLOS (added 2026-10-04) ---
+    # Problem found in testing: every frame below 0.21 counted as "closed",
+    # including ordinary blinks and squints. A rider whose eyes are hit by
+    # wind (or simply irritated) blinks more and squints, which pushed an
+    # alert rider to YELLOW, and to RED when squinting near 0.21. Drowsiness
+    # shows up as LONGER, slower closures, not more frequent normal blinks.
+    #
+    # 1) Minimum closure duration: a closure shorter than this is treated as
+    #    a normal blink and does not count toward PERCLOS. Normal blinks are
+    #    typically a few hundred ms; drowsy blinks and microsleeps last
+    #    longer. (Verify the exact figure against the literature for the
+    #    report before quoting it.)
+    min_closure_seconds: float = 0.4
+    #
+    # 2) P80 closure against the rider's OWN open-eye level: PERCLOS is
+    #    conventionally defined as the eyelid covering >= 80% of the eye
+    #    ("P80"). Closed threshold = closed_ear_floor + (1 - p80) * (open
+    #    baseline - closed_ear_floor). A squint (~50% closed) does not count.
+    #    The baseline is a high percentile of recent EAR, so blinks don't
+    #    drag it down.
+    perclos_closure_fraction: float = 0.80
+    closed_ear_floor: float = 0.08            # EAR of a fully closed eye
+    open_baseline_window_seconds: float = 60.0
+    open_baseline_percentile: float = 0.80
+    # Safety: the personal threshold is only used once the baseline is
+    # plausible for open eyes, and it can only make the threshold MORE
+    # lenient than ear_closed_threshold, never stricter. A rider who starts
+    # with eyes closed can't teach the system that closed is "normal". If
+    # recent EAR later drops below plausible (a long squint, or a slow
+    # drowsy droop), the last plausible baseline is kept rather than
+    # adapting down to it.
+    min_plausible_open_ear: float = 0.22
+    min_baseline_samples: int = 30
 
     # Rolling window (seconds) over which PERCLOS (percentage of time eyes
     # are closed) is computed.
@@ -185,3 +221,9 @@ class AppConfig:
 
     # Target loop / broadcast rate for the live dashboard feed.
     tick_hz: float = 5.0
+
+    # Camera sampling rate for the eye channel (a background thread). Faster
+    # than tick_hz so blink duration can actually be measured: at 5 Hz a
+    # 300 ms blink is only 1-2 samples. Actual rate is capped by the
+    # camera and by how fast mediapipe runs on this CPU.
+    eye_sample_hz: float = 15.0

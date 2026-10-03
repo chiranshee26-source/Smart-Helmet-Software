@@ -63,6 +63,7 @@ class EngineState:
     alert_level: AlertLevel
     action: str
     just_changed: bool
+    ear_closed_threshold: float = 0.0
 
 
 @dataclass
@@ -75,7 +76,14 @@ class DecisionEngine:
     def __init__(self, config: Optional[AppConfig] = None):
         self.cfg = config or AppConfig()
 
-        self._ear_samples: Deque[Tuple[float, Optional[float]]] = deque()  # (t, ear-or-None)
+        # Each entry: [t, ear-or-None, counted_closed]. counted_closed is set
+        # retroactively once a closure run has lasted min_closure_seconds,
+        # so short blinks never count toward PERCLOS.
+        self._ear_samples: Deque[list] = deque()
+        self._closure_run: List[list] = []       # entries of the current closed run
+        self._closure_run_start: Optional[float] = None
+        self._open_ear_history: Deque[Tuple[float, float]] = deque()  # for the personal baseline
+        self._latched_baseline: Optional[float] = None  # last plausible open-eye baseline
         self._nod_events: Deque[float] = deque()                     # timestamps
         self._last_head_pitch: Optional[float] = None
         self._last_head_t: Optional[float] = None
@@ -97,13 +105,72 @@ class DecisionEngine:
         (occlusion, head turned/tilted away, poor lighting, etc). This is
         deliberately NOT treated as "no evidence of drowsiness" -- a camera
         that can no longer see the rider's eyes at all is itself a warning
-        condition (the project doc calls out occlusion as a known camera
-        limitation), so sustained no-face frames count the same as sustained
-        closed-eye frames in the PERCLOS calculation below."""
-        self._ear_samples.append((timestamp, ear))
-        cutoff = timestamp - self.cfg.eye.perclos_window_seconds
+        condition, so a sustained no-face run counts the same as a sustained
+        closed-eye run in PERCLOS.
+
+        Blink- and squint-aware (see EyeConfig):
+          - "closed" means P80 closure relative to the rider's own open-eye
+            EAR, so a squint isn't counted;
+          - a closed (or no-face) run only counts once it has lasted
+            min_closure_seconds, so ordinary blinks -- even frequent ones
+            in wind -- and brief dropouts never count."""
+        ec = self.cfg.eye
+        if ear is not None:
+            self._open_ear_history.append((timestamp, ear))
+            cutoff = timestamp - ec.open_baseline_window_seconds
+            while self._open_ear_history and self._open_ear_history[0][0] < cutoff:
+                self._open_ear_history.popleft()
+
+        raw_closed = ear is None or ear < self.closed_threshold()
+        entry = [timestamp, ear, False]
+        if raw_closed:
+            if not self._closure_run:
+                self._closure_run_start = timestamp
+            self._closure_run.append(entry)
+            if timestamp - self._closure_run_start >= ec.min_closure_seconds:
+                for e in self._closure_run:
+                    e[2] = True
+        else:
+            # Run ended. If it never reached min_closure_seconds it was a
+            # blink / dropout and its samples stay uncounted.
+            self._closure_run = []
+            self._closure_run_start = None
+
+        self._ear_samples.append(entry)
+        cutoff = timestamp - ec.perclos_window_seconds
         while self._ear_samples and self._ear_samples[0][0] < cutoff:
             self._ear_samples.popleft()
+
+    def open_eye_baseline(self) -> Optional[float]:
+        """High percentile of recent EAR = the rider's typical open-eye EAR
+        (blinks and closures sit in the low tail, so they don't drag it)."""
+        ec = self.cfg.eye
+        if len(self._open_ear_history) < ec.min_baseline_samples:
+            return None
+        vals = sorted(e for _, e in self._open_ear_history)
+        idx = min(len(vals) - 1, int(ec.open_baseline_percentile * len(vals)))
+        return vals[idx]
+
+    def closed_threshold(self) -> float:
+        """EAR below which the eye counts as closed (P80 closure).
+        Falls back to the fixed ear_closed_threshold until a plausible
+        open-eye baseline exists, and never exceeds it."""
+        ec = self.cfg.eye
+        baseline = self.open_eye_baseline()
+        if baseline is not None and baseline >= ec.min_plausible_open_ear:
+            self._latched_baseline = baseline
+        elif self._latched_baseline is not None:
+            # Recent EAR looks implausibly low for open eyes (a long squint,
+            # or a slow drowsy droop). Keep the last good open-eye level
+            # rather than adapting down to it: a squint stays a squint, and a
+            # droop can't redefine "open".
+            baseline = self._latched_baseline
+        else:
+            return ec.ear_closed_threshold  # never seen plausible open eyes
+        personal = ec.closed_ear_floor + (1.0 - ec.perclos_closure_fraction) * (
+            baseline - ec.closed_ear_floor
+        )
+        return min(ec.ear_closed_threshold, personal)
 
     def update_head(self, pitch_deg: float, timestamp: float) -> None:
         """Edge-triggered nod detection against a slowly-adapting baseline.
@@ -161,10 +228,7 @@ class DecisionEngine:
     def _perclos(self) -> float:
         if not self._ear_samples:
             return 0.0
-        closed = sum(
-            1 for _, ear in self._ear_samples
-            if ear is None or ear < self.cfg.eye.ear_closed_threshold
-        )
+        closed = sum(1 for _, _, counted in self._ear_samples if counted)
         raw = closed / len(self._ear_samples)
 
         # Down-weight the ratio while the rolling window is still filling
@@ -274,6 +338,7 @@ class DecisionEngine:
             alert_level=self._level,
             action=self._level.action,
             just_changed=changed,
+            ear_closed_threshold=self.closed_threshold(),
         )
 
     def recent_events(self, limit: int = 20) -> List[Tuple[float, str]]:

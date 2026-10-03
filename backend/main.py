@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -78,6 +80,37 @@ imu = ImuSimulator(random_nod_probability_per_tick=0.002)
 _clients: set[WebSocket] = set()
 _running = True
 
+# Eye samples are read by a background thread at cfg.eye_sample_hz (faster
+# than the 5 Hz dashboard tick) so blink DURATION can be measured. The
+# sensor loop drains everything gathered since the last tick into the engine.
+_eye_queue: deque = deque(maxlen=500)
+_eye_lock = threading.Lock()
+_eye_thread: Optional[threading.Thread] = None
+_eye_fps = 0.0
+_last_eye_holder: dict = {}  # most recent eye result, for display between samples
+
+
+def _eye_reader():
+    global _eye_fps
+    period = 1.0 / cfg.eye_sample_hz
+    count, window_start = 0, time.time()
+    while _running and _eye_tracker is not None:
+        started = time.time()
+        try:
+            result = _eye_tracker.read_once()
+        except Exception as exc:  # noqa: BLE001 - keep the thread alive
+            print(f"[eye_reader] frame error: {exc}")
+            time.sleep(0.5)
+            continue
+        result.frame = None  # don't hold full images in the queue
+        with _eye_lock:
+            _eye_queue.append(result)
+        count += 1
+        if started - window_start >= 2.0:
+            _eye_fps = count / (started - window_start)
+            count, window_start = 0, started
+        time.sleep(max(0.0, period - (time.time() - started)))
+
 
 async def _sensor_loop():
     """Background task: pulls a sample from each source, feeds the engine,
@@ -93,19 +126,24 @@ async def _sensor_loop():
         seconds_since_blink = None
         face_found = False
         if _eye_enabled and _eye_tracker is not None:
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, _eye_tracker.read_once
-            )
-            # Feed the sample even when no face was found (result.ear is
-            # None) -- sustained "can't see the eyes at all" is itself a
-            # warning condition, not neutral. See decision_engine.update_eye.
-            engine.update_eye(result.ear, result.timestamp)
-            occlusion_suspected = result.occlusion_suspected
-            occlusion_reason = result.occlusion_reason
-            brightness_ratio = result.brightness_ratio
-            eye_patch_mean = result.eye_patch_mean
-            seconds_since_blink = result.seconds_since_blink
-            face_found = result.face_found
+            with _eye_lock:
+                results = list(_eye_queue)
+                _eye_queue.clear()
+            # Feed every sample, including no-face ones (ear=None) --
+            # sustained "can't see the eyes at all" is itself a warning
+            # condition, not neutral. See decision_engine.update_eye.
+            for r in results:
+                engine.update_eye(r.ear, r.timestamp)
+            result = _last_eye_holder.get("r")
+            if results:
+                _last_eye_holder["r"] = result = results[-1]
+            if result is not None:
+                occlusion_suspected = result.occlusion_suspected
+                occlusion_reason = result.occlusion_reason
+                brightness_ratio = result.brightness_ratio
+                eye_patch_mean = result.eye_patch_mean
+                seconds_since_blink = result.seconds_since_blink
+                face_found = result.face_found
 
         imu_sample = imu.tick(now)
         engine.update_head(imu_sample.pitch_deg, imu_sample.timestamp)
@@ -121,6 +159,8 @@ async def _sensor_loop():
             "brightness_ratio": round(brightness_ratio, 3) if brightness_ratio is not None else None,
             "eye_patch_mean": round(eye_patch_mean, 1) if eye_patch_mean is not None else None,
             "seconds_since_blink": round(seconds_since_blink, 1) if seconds_since_blink is not None else None,
+            "ear_closed_threshold": round(state.ear_closed_threshold, 3),
+            "eye_fps": round(_eye_fps, 1),
             "perclos": round(state.perclos, 3),
             "eye_score": round(state.eye_score, 3),
             "head_pitch_deg": round(state.head_pitch_deg, 2) if state.head_pitch_deg is not None else None,
@@ -146,12 +186,17 @@ async def _sensor_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _running, _eye_thread
     _try_init_camera()
+    if _eye_enabled:
+        _eye_thread = threading.Thread(target=_eye_reader, name="eye-reader", daemon=True)
+        _eye_thread.start()
     task = asyncio.create_task(_sensor_loop())
     yield
-    global _running
     _running = False
     task.cancel()
+    if _eye_thread is not None:
+        _eye_thread.join(timeout=2.0)
     if _eye_tracker is not None:
         _eye_tracker.release()
 
@@ -204,4 +249,5 @@ async def status():
         "tick_hz": cfg.tick_hz,
         "connected_clients": len(_clients),
         "exposure_locked": getattr(_eye_tracker, "exposure_locked", None),
+        "eye_fps": round(_eye_fps, 1),
     }
