@@ -42,7 +42,7 @@ class EyeConfig:
     # calibration showed texture/std often can't separate real eyes from a
     # lens on typical webcams -- brightness alone is the reliable signal --
     # so it's OR'd instead. See _occlusion_thresholds_fire in
-    # eye_detection.py.) This is a coarse heuristic, not real occlusion
+    # occlusion.py.) This is a coarse heuristic, not real occlusion
     # detection -- it is not guaranteed to catch every case (documented as
     # a known limitation either way).
     #
