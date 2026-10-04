@@ -12,6 +12,8 @@ Hardware (ESP32-CAM + MPU6050) is not here yet: a laptop webcam and
 - `backend/imu_simulator.py` — fake MPU6050 pitch stream with injectable nods.
 - `backend/main.py` — FastAPI app, 5 Hz sensor loop, WebSocket `/ws`, demo endpoints `/demo/trigger_nod`, `/demo/reset`.
 - `backend/calibrate*.py` — interactive calibration scripts (need a webcam).
+- `backend/occlusion.py`, `backend/blink_monitor.py` — sunglasses/no-blink checks (pure, unit-tested).
+- `backend/protocol.py`, `record_session.py`, `evaluate.py` — record labelled sessions and score them.
 - `frontend/` — plain HTML/CSS/JS dashboard, no build step.
 - `tests/` — pytest, synthetic data only (no camera needed).
 

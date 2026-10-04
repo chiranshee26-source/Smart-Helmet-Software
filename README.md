@@ -322,6 +322,35 @@ These test the decision engine and occlusion heuristic directly with
 synthetic data — no webcam or IMU required, so they run anywhere, including
 CI.
 
+## Evaluation (measuring accuracy)
+
+No accuracy numbers are claimed until real people have been recorded. The
+tools to produce them are here:
+
+1. **Record** a ~5-minute guided session per volunteer (seated, drowsiness
+   *acted*, never real riding). Stop the dashboard first so the camera is free:
+   ```bash
+   cd backend
+   python record_session.py --participant P01
+   ```
+   Timed on-screen instructions take the volunteer through alert phases
+   (normal, frequent blinking, squinting, glancing at "mirrors") and drowsy
+   phases (slow 1–2 s blinks, eyes closed). Each phase is pre-labelled, so
+   no manual annotation is needed. **Only numbers are saved** (timestamp,
+   EAR, face found): no images or video.
+2. **Evaluate** any number of recordings:
+   ```bash
+   python evaluate.py ../recordings/*.csv --compare-legacy --report ../recordings/results.md
+   ```
+   Reports detection rate, time to YELLOW/RED, false alarms per hour and
+   share of alert time spent in warning. `--compare-legacy` replays the same
+   recordings with the pre-4-Oct eye logic for a before/after table on
+   identical data.
+
+Recovery time after each drowsy phase is excluded from false-alarm counts,
+because the alert is designed to hold briefly after drowsiness ends. The
+head channel is still simulated, so evaluation covers the eye channel only.
+
 ## Project Structure
 
 ```
@@ -332,6 +361,9 @@ smart-helmet-software/
     eye_detection.py          # webcam -> EAR, dual mediapipe backend
     occlusion.py              # sunglasses/occlusion heuristic (numpy only, unit-tested)
     blink_monitor.py          # no-blink check: flags a flat, never-blinking EAR (unit-tested)
+    protocol.py               # guided, pre-labelled evaluation protocol (unit-tested)
+    record_session.py         # record a labelled session from the webcam (numbers only)
+    evaluate.py               # replay recordings -> detection rate, false alarms/h, latency
     imu_simulator.py           # stand-in for the MPU6050
     main.py                     # FastAPI app: wires it together, serves the dashboard
     calibrate.py                # interactive EAR calibration against your own camera
@@ -342,6 +374,7 @@ smart-helmet-software/
     test_decision_engine.py       # unit tests for the alert logic
     test_occlusion_heuristic.py    # unit tests for the sunglasses heuristic
     test_blink_monitor.py          # unit tests for the no-blink check
+    test_evaluate.py               # protocol recording + scoring, with a fake camera
   requirements.txt
   README.md
 ```
