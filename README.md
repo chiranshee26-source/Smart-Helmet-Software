@@ -348,7 +348,7 @@ stepping back down.
 - [x] Simulated IMU + live dashboard, calibration scripts
 - [x] Occlusion / sunglasses handling, edge-case fixes
 
-**Planned:**
+**Planned:** (parts list, budget and architecture: [`docs/HARDWARE.md`](docs/HARDWARE.md))
 - [ ] Build ESP32 + MPU6050 hardware prototype
 - [ ] Replace webcam/simulator with real camera + IMU streams
 - [ ] Integrate vibration motor, buzzer, OLED display
